@@ -122,24 +122,38 @@ footer b{color:#C9963A;}
     </div>
     <label>PIN Code <span class="req">*</span></label>
     <input type="text" id="fPin" placeholder="6-digit PIN" maxlength="6"/>
-    <button class="btn-submit" id="btnSubmit">Confirm My Order</button>
-    <p class="fnote">We will call/WhatsApp you within 24 hours. No advance payment needed!</p>
+    <button class="btn-submit" id="btnSubmit">Proceed to Pay - &#8377;499</button>
+    <p class="fnote">Aapko payment page pe le jaaya jayega. Secure payment via Razorpay.</p>
+  </div>
+</div>
+
+<div class="form-wrap" id="paymentWrap" style="display:none;text-align:center;">
+  <div class="form-card">
+    <h2>Almost done!</h2>
+    <p class="sub">Details mil gayi hain. Ab payment complete karo neeche button dabakar.</p>
+    <div class="order-sum">
+      <span class="pname">Radiant Hearts Mirror</span>
+      <span class="pamount">&#8377;499</span>
+    </div>
+    <form>
+      <script src="https://checkout.razorpay.com/v1/payment-button.js" data-payment_button_id="pl_T7qiG4g3sEiCfB" async></script>
+    </form>
+    <p class="fnote">Payment complete na ho paaye toh koi baat nahi — hamari team aapse <b>24 ghante mein</b> contact karegi.</p>
   </div>
 </div>
 
 <div class="success-wrap" id="successWrap">
   <div class="sicon">&#127881;</div>
-  <h2>Order Received!</h2>
+  <h2>Payment Successful!</h2>
   <p>Thank you, <span class="sname" id="sName"></span>!<br/><br/>
-  Hamari team aapko <b>24 ghante mein</b> WhatsApp ya Call karegi.<br/>
-  Koi advance payment nahi chahiye!</p>
+  Aapka order confirm ho gaya hai. Hamari team aapko <b>24-48 ghante mein</b> delivery details ke saath contact karegi.</p>
   <a class="wa-btn" id="waLink" href="#" target="_blank">WhatsApp pe Message karo</a>
 </div>
 
 <div class="contact">
   <h3>Contact Us</h3>
   <div class="citem"><span>&#128222;</span><a href="tel:7830009911">7830009911</a></div>
-  <div class="citem"><span>&#128231;</span><a href="mailto:craftart478@gmail.com">craftart478@gmail.com</a></div>
+  <div class="citem"><span>&#128231;</span><a href="mailto:Craftart478@gmail.com">Craftart478@gmail.com</a></div>
   <div class="citem"><span>&#128247;</span><a href="https://instagram.com/unique_wants_" target="_blank">@unique_wants_</a></div>
 </div>
 
@@ -155,6 +169,9 @@ footer b{color:#C9963A;}
   var formWrap  = document.getElementById("formWrap");
   var btnSubmit = document.getElementById("btnSubmit");
   var successWrap = document.getElementById("successWrap");
+  var paymentWrap = document.getElementById("paymentWrap");
+
+  var currentOrder = {}; // holds latest filled details
 
   btnOrder.addEventListener("click", function(){
     formWrap.style.display = "block";
@@ -179,40 +196,94 @@ footer b{color:#C9963A;}
     if(!state)                     { alert("Please enter your state"); return; }
     if(!/^[0-9]{6}$/.test(pin))    { alert("Please enter valid 6-digit PIN code"); return; }
 
+    var fullAddress = address + ", " + city + ", " + state + " - " + pin;
+
+    currentOrder = {
+      name: name, phone: phone, email: email, address: fullAddress
+    };
+
     btnSubmit.disabled = true;
     btnSubmit.textContent = "Sending...";
 
-    // EmailJS send
+    // STAGE 1: Send PENDING email immediately
     emailjs.send("service_5hvrn5s", "template_whs5du6", {
       customer_name:  name,
       customer_phone: phone,
       customer_email: email || "Not provided",
-      customer_address: address + ", " + city + ", " + state + " - " + pin,
+      customer_address: fullAddress,
       product_name:   "Radiant Hearts Lippan Art Mirror",
-      amount:         "Rs. 499",
-      to_email:       "craftart478@gmail.com"
+      amount:         "Rs. 499 - PAYMENT PENDING",
+      to_email:       "Craftart478@gmail.com"
     }).then(function(){
-      console.log("Email sent!");
+      console.log("Pending email sent!");
     }).catch(function(err){
-      console.log("Email error:", err);
+      console.log("Pending email error:", err);
     });
 
-    // WhatsApp message
-    var msg = "New Order - Radiant Hearts Mirror" +
+    // Prepare pending WhatsApp link (fallback in case payment not completed)
+    var pendingMsg = "Order Details Filled (PENDING Payment) - Radiant Hearts Mirror" +
       "%0AName: " + encodeURIComponent(name) +
       "%0APhone: " + encodeURIComponent(phone) +
       (email ? "%0AEmail: " + encodeURIComponent(email) : "") +
-      "%0AAddress: " + encodeURIComponent(address + ", " + city + ", " + state + " - " + pin) +
+      "%0AAddress: " + encodeURIComponent(fullAddress) +
       "%0AAmount: Rs.499" +
-      "%0AProduct: Radiant Hearts Lippan Art Mirror";
+      "%0AStatus: PENDING";
+    document.getElementById("waLink").href = "https://wa.me/917830009911?text=" + pendingMsg;
 
-    document.getElementById("waLink").href = "https://wa.me/917830009911?text=" + msg;
-    document.getElementById("sName").textContent = name;
-
+    // Show payment section, hide form
     formWrap.style.display = "none";
+    paymentWrap.style.display = "block";
+    paymentWrap.scrollIntoView({behavior:"smooth", block:"start"});
+  });
+
+  // Listen for Razorpay payment success via postMessage
+  window.addEventListener("message", function(event){
+    try {
+      var data = event.data;
+      if (typeof data === "string") {
+        try { data = JSON.parse(data); } catch(e) { return; }
+      }
+      if (data && (data.event === "payment.success" || (data.razorpay_payment_id))) {
+        var paymentId = data.razorpay_payment_id || (data.data && data.data.razorpay_payment_id) || "N/A";
+        handlePaymentSuccess(paymentId);
+      }
+    } catch(e) {
+      console.log("postMessage parse error", e);
+    }
+  });
+
+  function handlePaymentSuccess(paymentId){
+    if (!currentOrder.name) return;
+
+    var paidMsg = "PAID - Radiant Hearts Mirror" +
+      "%0AName: " + encodeURIComponent(currentOrder.name) +
+      "%0APhone: " + encodeURIComponent(currentOrder.phone) +
+      (currentOrder.email ? "%0AEmail: " + encodeURIComponent(currentOrder.email) : "") +
+      "%0AAddress: " + encodeURIComponent(currentOrder.address) +
+      "%0AAmount: Rs.499" +
+      "%0APayment ID: " + paymentId +
+      "%0AStatus: PAID";
+    document.getElementById("waLink").href = "https://wa.me/917830009911?text=" + paidMsg;
+
+    emailjs.send("service_5hvrn5s", "template_whs5du6", {
+      customer_name:  currentOrder.name,
+      customer_phone: currentOrder.phone,
+      customer_email: currentOrder.email || "Not provided",
+      customer_address: currentOrder.address + " | Payment ID: " + paymentId,
+      product_name:   "Radiant Hearts Lippan Art Mirror",
+      amount:         "Rs. 499 - PAID",
+      to_email:       "artcraft478@gmail.com"
+    }).then(function(){
+      console.log("Paid email sent!");
+    }).catch(function(err){
+      console.log("Paid email error:", err);
+    });
+
+    document.getElementById("sName").textContent = currentOrder.name;
+    paymentWrap.style.display = "none";
     successWrap.style.display = "block";
     successWrap.scrollIntoView({behavior:"smooth", block:"start"});
-  });
+  }
 })();
 </script>
 </body>
